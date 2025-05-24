@@ -4,7 +4,7 @@ import './App.css';
 function App() {
   const canvasRef = useRef(null);
   const [heartTriggers, setHeartTriggers] = useState([]);
-  const audioRef = useRef(null); // Add a ref for the audio element
+  const audioRef = useRef(null);
 
   // Configuración para los mensajes que caen
   useEffect(() => {
@@ -44,11 +44,11 @@ function App() {
   // Configuración para los corazones al interactuar
   const settings = {
     particles: {
-      length: 500,
-      duration: 2,
-      velocity: 100,
-      effect: -0.75,
-      size: 30,
+      length: 100, // Increased for denser spiky effect
+      duration: 0.8, // Shorter duration for quick fade-out
+      velocity: 300, // Faster outward movement
+      spread: 2 * Math.PI, // Full 360-degree burst
+      size: 2, // Line thickness
     },
   };
 
@@ -79,30 +79,37 @@ function App() {
     constructor() {
       this.position = new Point();
       this.velocity = new Point();
-      this.acceleration = new Point();
       this.age = 0;
+      this.length = Math.random() * 60 + 30; // Slightly longer spikes
     }
-    initialize(x, y, dx, dy) {
+    initialize(x, y, angle) {
       this.position.x = x;
       this.position.y = y;
-      this.velocity.x = dx;
-      this.velocity.y = dy;
-      this.acceleration.x = dx * settings.particles.effect;
-      this.acceleration.y = dy * settings.particles.effect;
+      const speed = settings.particles.velocity * (Math.random() * 0.5 + 0.5);
+      this.velocity.x = Math.cos(angle) * speed;
+      this.velocity.y = Math.sin(angle) * speed;
       this.age = 0;
     }
     update(deltaTime) {
       this.position.x += this.velocity.x * deltaTime;
       this.position.y += this.velocity.y * deltaTime;
-      this.velocity.x += this.acceleration.x * deltaTime;
-      this.velocity.y += this.acceleration.y * deltaTime;
       this.age += deltaTime;
+      this.velocity.x *= 0.92; // Faster slowdown for sharper burst
+      this.velocity.y *= 0.92;
     }
-    draw(context, image) {
-      const ease = (t) => (--t) * t * t + 1;
-      const size = image.width * ease(this.age / settings.particles.duration);
-      context.globalAlpha = 1 - this.age / settings.particles.duration;
-      context.drawImage(image, this.position.x - size / 2, this.position.y - size / 2, size, size);
+    draw(context) {
+      const alpha = 1 - this.age / settings.particles.duration;
+      if (alpha <= 0) return;
+      context.globalAlpha = alpha;
+      context.strokeStyle = '#ff69b4';
+      context.lineWidth = settings.particles.size;
+      context.beginPath();
+      context.moveTo(this.position.x, this.position.y);
+      context.lineTo(
+        this.position.x - this.velocity.x * this.length * (1 - this.age / settings.particles.duration),
+        this.position.y - this.velocity.y * this.length * (1 - this.age / settings.particles.duration)
+      );
+      context.stroke();
     }
   }
 
@@ -113,12 +120,16 @@ function App() {
       this.firstFree = 0;
       this.duration = settings.particles.duration;
     }
-    add(x, y, dx, dy) {
-      this.particles[this.firstFree].initialize(x, y, dx, dy);
-      this.firstFree++;
-      if (this.firstFree === this.particles.length) this.firstFree = 0;
-      if (this.firstActive === this.firstFree) this.firstActive++;
-      if (this.firstActive === this.particles.length) this.firstActive = 0;
+    add(x, y) {
+      const angleStep = settings.particles.spread / settings.particles.length;
+      for (let i = 0; i < settings.particles.length; i++) {
+        const angle = i * angleStep;
+        this.particles[this.firstFree].initialize(x, y, angle);
+        this.firstFree++;
+        if (this.firstFree === this.particles.length) this.firstFree = 0;
+        if (this.firstActive === this.firstFree) this.firstActive++;
+        if (this.firstActive === this.particles.length) this.firstActive = 0;
+      }
     }
     update(deltaTime) {
       let i;
@@ -134,14 +145,14 @@ function App() {
         if (this.firstActive === this.particles.length) this.firstActive = 0;
       }
     }
-    draw(context, image) {
+    draw(context) {
       let i;
       if (this.firstActive < this.firstFree) {
-        for (i = this.firstActive; i < this.firstFree; i++) this.particles[i].draw(context, image);
+        for (i = this.firstActive; i < this.firstFree; i++) this.particles[i].draw(context);
       }
       if (this.firstFree < this.firstActive) {
-        for (i = this.firstActive; i < this.particles.length; i++) this.particles[i].draw(context, image);
-        for (i = 0; i < this.firstFree; i++) this.particles[i].draw(context, image);
+        for (i = this.firstActive; i < this.particles.length; i++) this.particles[i].draw(context);
+        for (i = 0; i < this.firstFree; i++) this.particles[i].draw(context);
       }
     }
   }
@@ -152,39 +163,7 @@ function App() {
     const heartInstances = Array.from(canvases).map((canvas) => {
       const context = canvas.getContext('2d');
       const particles = new ParticlePool(settings.particles.length);
-      const particleRate = settings.particles.length / settings.particles.duration;
-      const pointOnHeart = (t) => new Point(160 * Math.pow(Math.sin(t), 3), 130 * Math.cos(t) - 50 * Math.cos(2 * t) - 20 * Math.cos(3 * t) - 10 * Math.cos(4 * t) + 25);
       let time;
-
-      const image = (() => {
-        const dummyCanvas = document.createElement('canvas');
-        const ctx = dummyCanvas.getContext('2d');
-        dummyCanvas.width = settings.particles.size;
-        dummyCanvas.height = settings.particles.size;
-
-        const to = (t) => {
-          const point = pointOnHeart(t);
-          point.x = settings.particles.size / 2 + point.x * settings.particles.size / 350;
-          point.y = settings.particles.size / 2 - point.y * settings.particles.size / 350;
-          return point;
-        };
-
-        ctx.beginPath();
-        let t = -Math.PI;
-        let point = to(t);
-        ctx.moveTo(point.x, point.y);
-        while (t < Math.PI) {
-          t += 0.01;
-          point = to(t);
-          ctx.lineTo(point.x, point.y);
-        }
-        ctx.closePath();
-        ctx.fillStyle = '#ff69b4';
-        ctx.fill();
-        const img = new Image();
-        img.src = dummyCanvas.toDataURL();
-        return img;
-      })();
 
       const render = () => {
         requestAnimationFrame(render);
@@ -194,30 +173,27 @@ function App() {
 
         context.clearRect(0, 0, canvas.width, canvas.height);
 
-        const amount = particleRate * deltaTime;
-        for (let i = 0; i < amount; i++) {
-          const pos = pointOnHeart(Math.PI - 2 * Math.PI * Math.random());
-          const dir = pos.clone().length(settings.particles.velocity);
-          particles.add(canvas.width / 2 + pos.x, canvas.height / 2 - pos.y, dir.x, -dir.y);
-        }
-
         particles.update(deltaTime);
-        particles.draw(context, image);
+        particles.draw(context);
       };
 
       const onResize = () => {
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.clientHeight;
       };
+
       window.addEventListener('resize', onResize);
       onResize();
+      particles.add(canvas.width / 2, canvas.height / 2); // Add particles immediately
       render();
 
-      return { canvas, particles, render };
+      return { canvas, particles, render, onResize };
     });
 
     return () => {
-      window.removeEventListener('resize', heartInstances.forEach(instance => instance.onResize));
+      heartInstances.forEach(instance => {
+        window.removeEventListener('resize', instance.onResize);
+      });
     };
   }, [heartTriggers]);
 
@@ -227,7 +203,6 @@ function App() {
 
     if (!clientX || !clientY) return;
 
-    // Play audio on first interaction
     if (audioRef.current) {
       audioRef.current.play().catch((error) => console.log('Error al reproducir música:', error));
     }
@@ -236,7 +211,7 @@ function App() {
 
     setTimeout(() => {
       setHeartTriggers((prev) => prev.slice(1));
-    }, 5000);
+    }, 1500); // Reduced to match the quick fade-out in the image
   };
 
   return (
@@ -246,16 +221,13 @@ function App() {
       onTouchStart={handleInteraction}
       onTouchMove={handleInteraction}
     >
-      {/* Música de fondo */}
       <audio id="background-music" ref={audioRef} loop>
         <source src="Myke Towers - Diosa.mp3" type="audio/mp3" />
         Tu navegador no soporta el elemento de audio.
       </audio>
 
-      {/* Canvas para los mensajes que caen */}
       <canvas id="canvas" ref={canvasRef}></canvas>
 
-      {/* Canvas para los corazones al interactuar */}
       {heartTriggers.map((trigger) => (
         <canvas
           key={trigger.id}
@@ -264,7 +236,6 @@ function App() {
         ></canvas>
       ))}
 
-      {/* Título principal */}
       <h1 className="text-4xl md:text-5xl font-dancing text-pink-400 text-center mb-8 glow">
         Para mi amor eterno
       </h1>
